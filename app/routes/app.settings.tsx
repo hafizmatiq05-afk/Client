@@ -3,35 +3,30 @@ import { useLoaderData, useActionData, Form } from "@remix-run/react";
 import {
   Page,
   Layout,
-  AnnotatedSection,
   Card,
   FormLayout,
   TextField,
   Select,
-  TextBlock,
+  Text,
   Button,
-  PageActions,
   Banner,
   Box,
 } from "@shopify/polaris";
 import { useState } from "react";
-import { PrismaClient } from "@prisma/client";
+import db from "~/db.server";
+import { authenticate } from "~/shopify.server";
 import { registerCronJob } from "~/jobs/scheduler.server";
 
-const prisma = new PrismaClient();
+export const loader: LoaderFunction = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+  const shop = session.shop;
 
-export const loader: LoaderFunction = async ({ context }) => {
-  const shop = context.shop;
-  if (!shop) {
-    throw new Error("Shop not found in context");
-  }
-
-  let settings = await prisma.pricingSettings.findUnique({
+  let settings = await db.pricingSettings.findUnique({
     where: { shop },
   });
 
   if (!settings) {
-    settings = await prisma.pricingSettings.create({
+    settings = await db.pricingSettings.create({
       data: {
         shop,
         inventoryThreshold: 50,
@@ -49,15 +44,13 @@ export const loader: LoaderFunction = async ({ context }) => {
   });
 };
 
-export const action: ActionFunction = async ({ request, context }) => {
+export const action: ActionFunction = async ({ request }) => {
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, { status: 405 });
   }
 
-  const shop = context.shop;
-  if (!shop) {
-    return json({ error: "Shop not found" }, { status: 400 });
-  }
+  const { session, admin } = await authenticate.admin(request);
+  const shop = session.shop;
 
   const formData = await request.formData();
   const inventoryThreshold = parseInt(
@@ -95,7 +88,7 @@ export const action: ActionFunction = async ({ request, context }) => {
 
   try {
     // Update or create settings
-    const updated = await prisma.pricingSettings.upsert({
+    const updated = await db.pricingSettings.upsert({
       where: { shop },
       update: {
         inventoryThreshold,
@@ -113,7 +106,6 @@ export const action: ActionFunction = async ({ request, context }) => {
     });
 
     // Re-register cron job with new frequency
-    const admin = context.admin; // Shopify admin client from context
     if (admin) {
       registerCronJob(shop, admin, reviewFrequency);
     }
@@ -157,7 +149,7 @@ export default function SettingsPage() {
         {/* Success Banner */}
         {actionData?.success && (
           <Layout.Section>
-            <Banner status="success" title="Settings saved successfully!">
+            <Banner tone="success" title="Settings saved successfully!">
               Your pricing automation settings have been updated and the cron
               schedule has been re-registered.
             </Banner>
@@ -167,20 +159,21 @@ export default function SettingsPage() {
         {/* Error Banner */}
         {actionData?.error && (
           <Layout.Section>
-            <Banner status="critical" title="Error saving settings">
+            <Banner tone="critical" title="Error saving settings">
               {actionData.error}
             </Banner>
           </Layout.Section>
         )}
 
-        {/* Inventory Threshold Section */}
-        <Layout.Section>
-          <AnnotatedSection
-            title="Inventory Threshold"
-            description="Pricing automation only applies to products with inventory at or below this level."
-          >
-            <Card>
-              <Form method="post">
+        {/* Single Form wrapping all settings */}
+        <Form method="post">
+          {/* Inventory Threshold Section */}
+          <Layout.Section>
+            <Layout.AnnotatedSection
+              title="Inventory Threshold"
+              description="Pricing automation only applies to products with inventory at or below this level."
+            >
+              <Card>
                 <FormLayout>
                   <TextField
                     label="Inventory Threshold (units)"
@@ -191,23 +184,21 @@ export default function SettingsPage() {
                     min="0"
                     helpText="e.g., 50 means prices only adjust for items with 50 or fewer units in stock"
                   />
-                  <TextBlock subdued>
+                  <Text as="p" variant="bodySm" tone="subdued">
                     📊 Current threshold: {inventoryThreshold} units
-                  </TextBlock>
+                  </Text>
                 </FormLayout>
-              </Form>
-            </Card>
-          </AnnotatedSection>
-        </Layout.Section>
+              </Card>
+            </Layout.AnnotatedSection>
+          </Layout.Section>
 
-        {/* Max Price Increase Section */}
-        <Layout.Section>
-          <AnnotatedSection
-            title="Maximum Price Increase Cap"
-            description="AI recommendations never exceed this percentage above the current price. This is a safety limit."
-          >
-            <Card>
-              <Form method="post">
+          {/* Max Price Increase Section */}
+          <Layout.Section>
+            <Layout.AnnotatedSection
+              title="Maximum Price Increase Cap"
+              description="AI recommendations never exceed this percentage above the current price. This is a safety limit."
+            >
+              <Card>
                 <FormLayout>
                   <TextField
                     label="Maximum Price Increase (%)"
@@ -219,30 +210,28 @@ export default function SettingsPage() {
                     helpText="e.g., 50 means a $100 item can never be priced above $150"
                   />
                   <Box paddingBlockStart="200">
-                    <TextBlock subdued>
-                      💡 <strong>Live Example:</strong>
-                    </TextBlock>
-                    <TextBlock subdued>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      <strong>💡 Live Example:</strong>
+                    </Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
                       Current Price: ${exampleCurrentPrice.toFixed(2)}
-                    </TextBlock>
-                    <TextBlock subdued>
+                    </Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
                       Maximum Price: ${exampleMaxPrice.toFixed(2)}
-                    </TextBlock>
+                    </Text>
                   </Box>
                 </FormLayout>
-              </Form>
-            </Card>
-          </AnnotatedSection>
-        </Layout.Section>
+              </Card>
+            </Layout.AnnotatedSection>
+          </Layout.Section>
 
-        {/* Review Frequency Section */}
-        <Layout.Section>
-          <AnnotatedSection
-            title="Review Frequency"
-            description="How often the AI pricing cycle runs automatically."
-          >
-            <Card>
-              <Form method="post">
+          {/* Review Frequency Section */}
+          <Layout.Section>
+            <Layout.AnnotatedSection
+              title="Review Frequency"
+              description="How often the AI pricing cycle runs automatically."
+            >
+              <Card>
                 <FormLayout>
                   <Select
                     label="Automation Schedule"
@@ -259,23 +248,21 @@ export default function SettingsPage() {
                     onChange={setReviewFrequency}
                     name="reviewFrequency"
                   />
-                  <TextBlock subdued>
+                  <Text as="p" variant="bodySm" tone="subdued">
                     ⏱️ Currently set to: <strong>{reviewFrequency}</strong>
-                  </TextBlock>
+                  </Text>
                 </FormLayout>
-              </Form>
-            </Card>
-          </AnnotatedSection>
-        </Layout.Section>
+              </Card>
+            </Layout.AnnotatedSection>
+          </Layout.Section>
 
-        {/* AI Behavior Prompt Section */}
-        <Layout.Section>
-          <AnnotatedSection
-            title="AI Behavior Instructions (Optional)"
-            description="Custom instructions for Gemini to personalize pricing recommendations."
-          >
-            <Card>
-              <Form method="post">
+          {/* AI Behavior Prompt Section */}
+          <Layout.Section>
+            <Layout.AnnotatedSection
+              title="AI Behavior Instructions (Optional)"
+              description="Custom instructions for Gemini to personalize pricing recommendations."
+            >
+              <Card>
                 <FormLayout>
                   <TextField
                     label="Custom AI Prompt"
@@ -288,26 +275,17 @@ export default function SettingsPage() {
                     helpText="Leave blank for default behavior. Your instructions will be included in every pricing recommendation."
                   />
                 </FormLayout>
-              </Form>
-            </Card>
-          </AnnotatedSection>
-        </Layout.Section>
+              </Card>
+            </Layout.AnnotatedSection>
+          </Layout.Section>
 
-        {/* Save Button */}
-        <Layout.Section>
-          <PageActions
-            primaryAction={{
-              content: "Save Settings",
-              onAction: () => {
-                // Form will submit via standard POST
-                const form = document.querySelector("form");
-                if (form) {
-                  form.requestSubmit();
-                }
-              },
-            }}
-          />
-        </Layout.Section>
+          {/* Save Button as form submit */}
+          <Layout.Section>
+            <Button variant="primary" submit>
+              Save Settings
+            </Button>
+          </Layout.Section>
+        </Form>
       </Layout>
     </Page>
   );

@@ -1,9 +1,7 @@
 import cron from "node-cron";
 import type { AdminApiClient } from "@shopify/admin-api-client";
 import { runPricingCycle } from "../services/pricing.server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import db from "../db.server";
 
 // Global store for active cron jobs per shop
 const activeJobs = new Map<string, cron.ScheduledTask>();
@@ -30,9 +28,7 @@ const CRON_PATTERNS: CronSchedule = {
  * Get the cron pattern for a given frequency string.
  * Defaults to daily if frequency is not recognized.
  */
-function getCronPattern(
-  frequency: string
-): string {
+function getCronPattern(frequency: string): string {
   const pattern =
     CRON_PATTERNS[frequency as keyof CronSchedule] || CRON_PATTERNS.daily;
   return pattern;
@@ -123,10 +119,12 @@ export async function initializeScheduler(
     console.log("[Scheduler] Initializing cron jobs from database...");
 
     // Load all shops with pricing settings
-    const allSettings = await prisma.pricingSettings.findMany();
+    const allSettings = await db.pricingSettings.findMany();
 
     if (allSettings.length === 0) {
-      console.log("[Scheduler] No shops found in database, no jobs to initialize");
+      console.log(
+        "[Scheduler] No shops found in database, no jobs to initialize"
+      );
       return;
     }
 

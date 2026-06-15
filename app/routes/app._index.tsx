@@ -12,16 +12,15 @@ import {
   Button,
   EmptyState,
   Box,
-  Grid,
+  InlineGrid,
   ButtonGroup,
 } from "@shopify/polaris";
-import { PlayMajor } from "@shopify/polaris-icons";
+import { PlayIcon } from "@shopify/polaris-icons";
 import { useState } from "react";
-import { PrismaClient } from "@prisma/client";
+import db from "~/db.server";
+import { authenticate } from "~/shopify.server";
 import { fetchProducts } from "~/services/shopify.server";
 import { getPricingSummary, runPricingCycle } from "~/services/pricing.server";
-
-const prisma = new PrismaClient();
 
 interface LoaderData {
   summary: {
@@ -42,17 +41,10 @@ interface LoaderData {
 }
 
 export const loader: LoaderFunction = async ({
-  context,
+  request,
 }): Promise<LoaderData> => {
-  const shop = context.shop;
-  if (!shop) {
-    throw new Error("Shop not found in context");
-  }
-
-  const admin = context.admin;
-  if (!admin) {
-    throw new Error("Admin client not found in context");
-  }
+  const { session, admin } = await authenticate.admin(request);
+  const shop = session.shop;
 
   try {
     // Get summary statistics
@@ -62,7 +54,7 @@ export const loader: LoaderFunction = async ({
     const allVariants = await fetchProducts(admin);
 
     // Get pricing settings for threshold
-    const settings = await prisma.pricingSettings.findUnique({
+    const settings = await db.pricingSettings.findUnique({
       where: { shop },
     });
 
@@ -73,7 +65,7 @@ export const loader: LoaderFunction = async ({
 
     // Get recent price history (last 7 days)
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const history = await prisma.priceHistory.findMany({
+    const history = await db.priceHistory.findMany({
       where: {
         shop,
         createdAt: {
@@ -124,20 +116,13 @@ export const loader: LoaderFunction = async ({
   }
 };
 
-export const action: ActionFunction = async ({ request, context }) => {
+export const action: ActionFunction = async ({ request }) => {
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, { status: 405 });
   }
 
-  const shop = context.shop;
-  const admin = context.admin;
-
-  if (!shop || !admin) {
-    return json(
-      { error: "Shop or admin client not found" },
-      { status: 400 }
-    );
-  }
+  const { session, admin } = await authenticate.admin(request);
+  const shop = session.shop;
 
   try {
     console.log(`Manual pricing cycle triggered for shop: ${shop}`);
@@ -173,12 +158,12 @@ export default function DashboardPage() {
     {
       id: "summary",
       content: "Summary",
-      badge: { content: "Live", status: "success" as const },
+      badge: "Live",
     },
     {
       id: "history",
       content: "Price History",
-      badge: { content: priceHistory.length },
+      badge: String(priceHistory.length),
     },
   ];
 
@@ -196,7 +181,7 @@ export default function DashboardPage() {
               <ButtonGroup>
                 <Button
                   variant="primary"
-                  icon={PlayMajor}
+                  icon={PlayIcon}
                   onClick={handleManualRun}
                   loading={isRunning}
                   disabled={isRunning}
@@ -207,7 +192,7 @@ export default function DashboardPage() {
                 </Button>
               </ButtonGroup>
               <Box paddingBlockStart="400">
-                <Text as="p" variant="bodySm" color="subdued">
+                <Text as="p" variant="bodySm" tone="subdued">
                   Click to manually trigger a pricing cycle. Automatic cycles run
                   according to your schedule settings.
                 </Text>
@@ -219,7 +204,7 @@ export default function DashboardPage() {
         {/* Summary Cards */}
         {selectedTab === 0 && (
           <Layout.Section>
-            <Grid columns={{ xs: "1fr", sm: "1fr 1fr 1fr" }} gap="400">
+            <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
               <Card>
                 <Box padding="400">
                   <Text as="h3" variant="headingMd">
@@ -228,7 +213,7 @@ export default function DashboardPage() {
                   <Text as="p" variant="heading2xl" fontWeight="bold">
                     {summary.productsMonitored}
                   </Text>
-                  <Text as="p" variant="bodySm" color="subdued">
+                  <Text as="p" variant="bodySm" tone="subdued">
                     Products below inventory threshold
                   </Text>
                 </Box>
@@ -242,7 +227,7 @@ export default function DashboardPage() {
                   <Text as="p" variant="heading2xl" fontWeight="bold">
                     {summary.updatedLastCycle}
                   </Text>
-                  <Text as="p" variant="bodySm" color="subdued">
+                  <Text as="p" variant="bodySm" tone="subdued">
                     Prices adjusted by AI
                   </Text>
                 </Box>
@@ -256,12 +241,12 @@ export default function DashboardPage() {
                   <Text as="p" variant="heading2xl" fontWeight="bold">
                     +{summary.avgPriceChange}%
                   </Text>
-                  <Text as="p" variant="bodySm" color="subdued">
+                  <Text as="p" variant="bodySm" tone="subdued">
                     Average increase across updates
                   </Text>
                 </Box>
               </Card>
-            </Grid>
+            </InlineGrid>
           </Layout.Section>
         )}
 
@@ -272,7 +257,7 @@ export default function DashboardPage() {
               {/* Summary Tab */}
               {selectedTab === 0 && (
                 <Box padding="400">
-                  <Text as="p" variant="bodyMd" color="subdued">
+                  <Text as="p" variant="bodyMd" tone="subdued">
                     📊 Dashboard summary showing real-time monitoring metrics.
                     Products are monitored when their inventory falls below your
                     threshold setting.
@@ -295,34 +280,39 @@ export default function DashboardPage() {
                     </EmptyState>
                   ) : (
                     <ResourceList
-                      resourceName={{ singular: "price change", plural: "price changes" }}
+                      resourceName={{
+                        singular: "price change",
+                        plural: "price changes",
+                      }}
                       items={priceHistory}
                       renderItem={(item) => (
                         <ResourceItem
                           id={String(item.id)}
                           media={
-                            <Badge
-                              status="success"
-                              progress="complete"
-                            >
+                            <Badge tone="success">
                               +{item.percentChange}%
                             </Badge>
                           }
                         >
                           <Box paddingBlockStart="200">
-                            <Text as="h3" variant="headingMd" fontWeight="bold">
+                            <Text
+                              as="h3"
+                              variant="headingMd"
+                              fontWeight="bold"
+                            >
                               {item.productTitle}
                             </Text>
-                            <Text as="p" variant="bodySm" color="subdued">
-                              ${item.oldPrice.toFixed(2)} → ${item.newPrice.toFixed(2)}
+                            <Text as="p" variant="bodySm" tone="subdued">
+                              ${item.oldPrice.toFixed(2)} → $
+                              {item.newPrice.toFixed(2)}
                             </Text>
-                            <Text as="p" variant="bodySm" color="subdued">
+                            <Text as="p" variant="bodySm" tone="subdued">
                               📦 Inventory: {item.inventoryAtChange} units
                             </Text>
-                            <Text as="p" variant="bodySm" color="subdued">
+                            <Text as="p" variant="bodySm" tone="subdued">
                               💡 {item.aiReason}
                             </Text>
-                            <Text as="p" variant="bodySm" color="subdued">
+                            <Text as="p" variant="bodySm" tone="subdued">
                               🕐 {new Date(item.createdAt).toLocaleString()}
                             </Text>
                           </Box>

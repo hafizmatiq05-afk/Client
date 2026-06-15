@@ -1,39 +1,30 @@
-import type { LoaderFunction } from "@remix-run/node";
-import { json } from "@remix-run/node";
-import { useOutletContext } from "@remix-run/react";
-import { PrismaClient } from "@prisma/client";
-import { initializeScheduler } from "~/jobs/scheduler.server";
+import { type LoaderFunction } from "@remix-run/node";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+} from "@remix-run/react";
 
-const prisma = new PrismaClient();
-
-interface RootContext {
-  shop: string;
-  admin: any; // AdminApiClient from Shopify
-}
-
-/**
- * Root loader: Initialize app-wide context and schedulers
- */
-export const loader: LoaderFunction = async ({ context }) => {
-  const shop = context.shop as string;
-  const admin = context.admin;
-
-  // On first load, initialize cron schedulers for all shops
-  // This runs once per app boot in production, and respects hot-reload guard in dev
-  if (admin) {
-    try {
-      await initializeScheduler(admin);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error("Failed to initialize scheduler:", errorMsg);
-      // Don't fail the app load, just log the error
-    }
-  }
-
-  return json({ shop });
+export const loader: LoaderFunction = async () => {
+  return null;
 };
 
 export default function Root() {
-  const context = useOutletContext<RootContext>();
-  return null; // Layout is handled by nested routes
+  return (
+    <html lang="en">
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <Meta />
+        <Links />
+      </head>
+      <body>
+        <Outlet />
+        <ScrollRestoration />
+        <Scripts />
+      </body>
+    </html>
+  );
 }

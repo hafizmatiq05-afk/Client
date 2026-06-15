@@ -1,9 +1,7 @@
-import { PrismaClient } from "@prisma/client";
 import type { AdminApiClient } from "@shopify/admin-api-client";
+import db from "~/db.server";
 import { fetchProducts, updateVariantPrice } from "./shopify.server";
 import { getPriceRecommendation } from "./gemini.server";
-
-const prisma = new PrismaClient();
 
 export interface PricingCycleResult {
   product: string;
@@ -32,12 +30,12 @@ export async function runPricingCycle(
 
   try {
     // Load settings for this shop (create defaults if none exist)
-    let settings = await prisma.pricingSettings.findUnique({
+    let settings = await db.pricingSettings.findUnique({
       where: { shop },
     });
 
     if (!settings) {
-      settings = await prisma.pricingSettings.create({
+      settings = await db.pricingSettings.create({
         data: {
           shop,
           inventoryThreshold: 50,
@@ -132,7 +130,7 @@ export async function runPricingCycle(
 
         if (updateResult.success) {
           // Write to PriceHistory
-          await prisma.priceHistory.create({
+          await db.priceHistory.create({
             data: {
               shop,
               productId: variant.productId,
@@ -195,7 +193,7 @@ export async function runPricingCycle(
 export async function getPricingSummary(shop: string) {
   try {
     // Get settings
-    const settings = await prisma.pricingSettings.findUnique({
+    const settings = await db.pricingSettings.findUnique({
       where: { shop },
     });
 
@@ -209,7 +207,7 @@ export async function getPricingSummary(shop: string) {
 
     // Get recent price history (last 24 hours)
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentUpdates = await prisma.priceHistory.findMany({
+    const recentUpdates = await db.priceHistory.findMany({
       where: {
         shop,
         createdAt: {

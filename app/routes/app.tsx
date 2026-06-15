@@ -5,25 +5,35 @@ import {
   Frame,
   Navigation,
   TopBar,
-  Sidebar,
 } from "@shopify/polaris";
 import {
   HomeIcon,
   SettingsIcon,
   QuestionMarkIcon,
 } from "@shopify/polaris-icons";
-import { ShopifyApp } from "@shopify/shopify-app-remix/server";
+import enTranslations from "@shopify/polaris/locales/en.json";
+import { authenticate } from "~/shopify.server";
+import { initializeScheduler } from "~/jobs/scheduler.server";
 
 interface ContextData {
   shop: string;
-  apiKey: string;
 }
 
-export const loader: LoaderFunction = async ({ context }) => {
-  return json({
-    shop: context.shop,
-    apiKey: process.env.SHOPIFY_API_KEY,
-  });
+export const loader: LoaderFunction = async ({ request }) => {
+  const { session, admin } = await authenticate.admin(request);
+  const shop = session.shop;
+
+  // Move scheduler initialization here from root.tsx
+  if (admin) {
+    try {
+      await initializeScheduler(admin);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("Failed to initialize scheduler:", errorMsg);
+    }
+  }
+
+  return json({ shop });
 };
 
 export default function App() {
@@ -67,11 +77,9 @@ export default function App() {
     </Navigation>
   );
 
-  const sidebarMarkup = <Sidebar>{navigationMarkup}</Sidebar>;
-
   return (
-    <AppProvider i18n={{}}>
-      <Frame topBar={topBarMarkup} sidebar={sidebarMarkup}>
+    <AppProvider i18n={enTranslations}>
+      <Frame topBar={topBarMarkup} navigation={navigationMarkup}>
         <Outlet context={{ shop }} />
       </Frame>
     </AppProvider>
