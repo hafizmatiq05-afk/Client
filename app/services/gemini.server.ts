@@ -16,6 +16,7 @@ export interface PriceRecommendation {
  * Get a price recommendation from Google Gemini.
  * Returns { recommendedPrice, reason } or null if response is malformed/invalid.
  * Graceful error handling: malformed responses return null (Rule 4).
+ * FIX 6: Correctly parse response.response.text() instead of response.content.parts
  */
 export async function getPriceRecommendation(
   product: ProductVariant,
@@ -79,14 +80,8 @@ Do not include any other text, markdown, or explanations outside the JSON.`;
       },
     });
 
-    const responseText = response.content.parts
-      .map((part) => {
-        if ("text" in part) {
-          return part.text;
-        }
-        return "";
-      })
-      .join("");
+    // FIX 6: Use response.response.text() to get the text correctly
+    const responseText = response.response.text();
 
     if (!responseText) {
       console.error("Empty response from Gemini");
